@@ -1,0 +1,9 @@
+services:
+  prayer-bot:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      PRAYER_DB_PATH: /data/prayerbot.db
+    volumes:
+      - ./data:/data
