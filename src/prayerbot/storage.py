@@ -104,7 +104,6 @@ class Storage:
     def assign_prayee(self, prayer_id: int) -> int | None:
         """Assign a random person from the pool (not self, not already assigned)."""
         with self._lock:
-            # Get all pool members the prayer hasn't been assigned to
             rows = self._conn.execute("""
                 SELECT u.user_id FROM users u
                 WHERE u.in_pool = 1
@@ -112,10 +111,7 @@ class Storage:
                   AND u.user_id NOT IN (
                       SELECT prayee_id FROM pairings WHERE prayer_id = ?
                   )
-                  AND u.user_id NOT IN (
-                      SELECT prayer_id FROM pairings WHERE prayee_id = ?
-                  )
-            """, (prayer_id, prayer_id, prayer_id)).fetchall()
+            """, (prayer_id, prayer_id)).fetchall()
 
             candidates = [r[0] for r in rows]
             if not candidates:

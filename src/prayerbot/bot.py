@@ -5,13 +5,15 @@ import logging
 from datetime import time, timezone
 
 from telegram import Update
-from telegram.constants import ParseMode
-from telegram.ext import Application, CommandHandler, ContextTypes, filters, MessageHandler
+from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
 
 from .config import Config
 from .storage import Storage
 
 log = logging.getLogger(__name__)
+
+# In-memory: user_id -> awaiting message for send
+_awaiting_send: set[int] = set()
 
 
 def build_application(config: Config, storage: Storage) -> Application:
@@ -23,8 +25,10 @@ def build_application(config: Config, storage: Storage) -> Application:
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler("help", cmd_help))
     app.add_handler(CommandHandler("leave", cmd_leave))
-    app.add_handler(CommandHandler("myperson", cmd_myperson))
+    app.add_handler(CommandHandler(["match", "myperson"], cmd_match))
     app.add_handler(CommandHandler("send", cmd_send))
+    # Catch text messages for the send flow
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
 
     # Weekly reshuffle + reminder every Monday 0000 SGT = 1600 UTC Sunday
     app.job_queue.run_daily(
@@ -47,16 +51,16 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if joined:
         await update.effective_message.reply_text(
             "🙏 welcome! you're in the prayer pool.\n\n"
-            "• /myperson — get assigned someone to pray for\n"
-            "• /send <message> — send them an anonymous message\n"
+            "• /match — get assigned someone to pray for\n"
+            "• /send — send them an anonymous message\n"
             "• /leave — leave the pool\n"
             "• /help — show this again"
         )
     else:
         await update.effective_message.reply_text(
             "you're already in the pool! 🙏\n\n"
-            "• /myperson — get assigned someone to pray for\n"
-            "• /send <message> — send them an anonymous message"
+            "• /match — get assigned someone to pray for\n"
+            "• /send — send them an anonymous message"
         )
 
 
@@ -67,8 +71,8 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "you pray for them, and you can send them an encouraging message "
         "through me — they won't know it's you.\n\n"
         "• /start — join the prayer pool\n"
-        "• /myperson — get assigned someone to pray for\n"
-        "• /send <message> — send an anonymous message to your person\n"
+        "• /match — get assigned someone to pray for\n"
+        "• /send — send an anonymous message to your person\n"
         "• /leave — leave the pool\n\n"
         "pairings reshuffle every monday 🙌"
     )
@@ -91,7 +95,7 @@ async def cmd_leave(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         )
 
 
-async def cmd_myperson(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def cmd_match(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     storage: Storage = context.bot_data["storage"]
     user = update.effective_user
     if not user:
@@ -124,8 +128,7 @@ async def cmd_myperson(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     await update.effective_message.reply_text(
         f"🙏 you're praying for **{name}**! "
         f"take a moment to lift them up.\n\n"
-        f"you can send them an encouraging message with /send <message>",
-        parse_mode=ParseMode.HTML,
+        f"you can send them an encouraging message with /send",
     )
 
 
@@ -144,17 +147,35 @@ async def cmd_send(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     pairing = storage.get_pairing(user.id)
     if pairing is None:
         await update.effective_message.reply_text(
-            "you haven't been assigned someone yet! use /myperson first 🙏"
+            "you haven't been assigned someone yet! use /match first 🙏"
         )
         return
 
-    if not context.args:
+    _awaiting_send.add(user.id)
+    await update.effective_message.reply_text(
+        "what do you want to send? just type it as a reply to this message 🙏"
+    )
+
+
+async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle text messages — used for the send flow."""
+    user = update.effective_user
+    if not user or user.id not in _awaiting_send:
+        return
+
+    _awaiting_send.discard(user.id)
+
+    storage: Storage = context.bot_data["storage"]
+    pairing = storage.get_pairing(user.id)
+    if pairing is None:
         await update.effective_message.reply_text(
-            "what do you want to send? try: /send i'm praying for you today 🙏"
+            "your pairing expired while you were typing. try /match again 🙏"
         )
         return
 
-    message = " ".join(context.args)
+    message = update.effective_message.text
+    if not message:
+        return
 
     try:
         await context.bot.send_message(
@@ -184,10 +205,10 @@ async def weekly_reminder(context: ContextTypes.DEFAULT_TYPE) -> None:
         try:
             await context.bot.send_message(
                 chat_id=member.user_id,
-                text="🙏 new week, new person! use /myperson to get "
+                text="🙏 new week, new person! use /match to get "
                      "assigned someone to pray for this week.\n\n"
                      "and don't forget to send them an encouraging "
-                     "message with /send <message> 💌",
+                     "message with /send 💌",
             )
         except Exception as exc:
             log.warning("failed to remind %d: %s", member.user_id, exc)
