@@ -5,7 +5,9 @@ import logging
 from datetime import time, timezone
 
 from telegram import Update
+from telegram.constants import ParseMode
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
+import html
 
 from .config import Config
 from .storage import Storage
@@ -128,9 +130,10 @@ async def cmd_match(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     prayee = storage.get_user(prayee_id)
     name = prayee.display_name if prayee else "someone"
     await update.effective_message.reply_text(
-        f"🙏 you're praying for **{name}**! "
+        f"🙏 you're praying for <b>{html.escape(name)}</b>! "
         f"take a moment to lift them up.\n\n"
         f"you can send them an encouraging message with /send",
+        parse_mode=ParseMode.HTML,
     )
 
 
