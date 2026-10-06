@@ -15,6 +15,8 @@ def main() -> None:
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
+    # httpx logs every request URL at INFO, and those URLs contain the bot token
+    logging.getLogger("httpx").setLevel(logging.WARNING)
     log = logging.getLogger("prayerbot")
 
     config = Config()

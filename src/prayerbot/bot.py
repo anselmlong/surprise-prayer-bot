@@ -115,7 +115,9 @@ async def cmd_match(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         )
         return
 
-    prayee_id = storage.assign_prayee(user.id)
+    # Keep the same person until the weekly reshuffle clears pairings
+    pairing = storage.get_pairing(user.id)
+    prayee_id = pairing.prayee_id if pairing else storage.assign_prayee(user.id)
     if prayee_id is None:
         await update.effective_message.reply_text(
             "couldn't find anyone to pair you with right now. "
