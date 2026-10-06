@@ -80,9 +80,10 @@ class Storage:
             self._conn.execute(
                 "UPDATE users SET in_pool = 0 WHERE user_id = ?", (user_id,)
             )
-            # Also clear any pairing they had
+            # Also clear any pairing they had, and anyone praying for them
             self._conn.execute(
-                "DELETE FROM pairings WHERE prayer_id = ?", (user_id,)
+                "DELETE FROM pairings WHERE prayer_id = ? OR prayee_id = ?",
+                (user_id, user_id),
             )
             self._conn.commit()
         return True
@@ -136,7 +137,7 @@ class Storage:
                 FROM pairings p
                 JOIN users u1 ON u1.user_id = p.prayer_id
                 JOIN users u2 ON u2.user_id = p.prayee_id
-                WHERE p.prayer_id = ?
+                WHERE p.prayer_id = ? AND u2.in_pool = 1
             """, (user_id,)).fetchone()
         if row:
             return Pairing(row[0], row[1], row[2], row[3])
